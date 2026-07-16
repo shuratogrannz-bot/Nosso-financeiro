@@ -17,6 +17,21 @@
 </head>
 <body>
 
+<div class="lock-overlay" id="lockOverlay">
+  <div class="lock-box">
+    <div class="lock-icon">🔒</div>
+    <h2 id="lockTitle">Digite o PIN</h2>
+    <p class="muted-text" id="lockSubtitle">Para acessar o Nosso Financeiro</p>
+    <input type="password" inputmode="numeric" pattern="[0-9]*" id="lockInput" maxlength="6" autocomplete="off" placeholder="••••">
+    <input type="password" inputmode="numeric" pattern="[0-9]*" id="lockInputConfirm" maxlength="6" autocomplete="off" placeholder="Confirme o PIN" class="hidden">
+    <p class="lock-error hidden" id="lockError"></p>
+    <button class="btn primary" id="lockSubmit">Entrar</button>
+    <button class="link-btn" id="lockForgot">Esqueci o PIN</button>
+  </div>
+</div>
+
+<div id="appShell" class="hidden">
+
 <header class="topbar">
   <div class="topbar-left">
     <span class="brand">💰 Nosso Financeiro</span>
@@ -180,6 +195,15 @@
         </label>
       </div>
     </div>
+
+    <div class="card">
+      <h2>Segurança</h2>
+      <p class="muted-text">PIN local deste aparelho. Pedido toda vez que o app é aberto.</p>
+      <div class="btn-row">
+        <button class="btn" id="btnChangePin">Alterar PIN</button>
+        <button class="btn danger" id="btnRemovePin">Remover PIN</button>
+      </div>
+    </div>
   </section>
 
 </main>
@@ -189,6 +213,8 @@
 </div>
 
 <div class="toast-container" id="toastContainer"></div>
+
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="app.js"></script>

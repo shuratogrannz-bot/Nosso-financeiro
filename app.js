@@ -3,6 +3,8 @@
 const LS_DATA_KEY = 'nf_data_v1';
 const LS_CONFIG_KEY = 'nf_config_v1';
 const LS_THEME_KEY = 'nf_theme_v1';
+const LS_PIN_KEY = 'nf_pin_hash_v1';
+const SS_UNLOCKED_KEY = 'nf_unlocked_v1';
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -786,7 +788,7 @@ function importBackup(file) {
 
 /* ---------- Inicialização ---------- */
 
-function init() {
+function startApp() {
   const savedTheme = localStorage.getItem(LS_THEME_KEY) || 'auto';
   applyTheme(savedTheme);
 
@@ -834,11 +836,164 @@ function init() {
     e.target.value = '';
   });
 
+  document.getElementById('btnChangePin').addEventListener('click', changePin);
+  document.getElementById('btnRemovePin').addEventListener('click', removePin);
+
   renderAll();
   if (config.apiKey && config.binId) pullFromJsonBin(false);
 }
 
-document.addEventListener('DOMContentLoaded', init);
+/* ---------- Bloqueio por PIN ---------- */
+
+async function sha256Hex(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function showAppShell() {
+  document.getElementById('lockOverlay').classList.add('hidden');
+  document.getElementById('appShell').classList.remove('hidden');
+}
+
+function initLock() {
+  const overlay = document.getElementById('lockOverlay');
+  const title = document.getElementById('lockTitle');
+  const subtitle = document.getElementById('lockSubtitle');
+  const input = document.getElementById('lockInput');
+  const confirmInput = document.getElementById('lockInputConfirm');
+  const error = document.getElementById('lockError');
+  const submitBtn = document.getElementById('lockSubmit');
+  const forgotBtn = document.getElementById('lockForgot');
+
+  const savedHash = localStorage.getItem(LS_PIN_KEY);
+  const alreadyUnlocked = savedHash && sessionStorage.getItem(SS_UNLOCKED_KEY) === '1';
+
+  if (!savedHash) {
+    // Primeiro uso: pedir para criar um PIN
+    title.textContent = 'Crie um PIN';
+    subtitle.textContent = 'Use 4 a 6 dígitos para proteger o app neste aparelho';
+    confirmInput.classList.remove('hidden');
+    forgotBtn.classList.add('hidden');
+  } else if (alreadyUnlocked) {
+    showAppShell();
+    startApp();
+    return;
+  } else {
+    title.textContent = 'Digite o PIN';
+    subtitle.textContent = 'Para acessar o Nosso Financeiro';
+    confirmInput.classList.add('hidden');
+    forgotBtn.classList.remove('hidden');
+  }
+
+  overlay.classList.remove('hidden');
+  input.value = '';
+  confirmInput.value = '';
+  error.classList.add('hidden');
+  input.focus();
+
+  function showError(msg) {
+    error.textContent = msg;
+    error.classList.remove('hidden');
+  }
+
+  async function handleSubmit() {
+    const pin = input.value.trim();
+    if (!/^\d{4,6}$/.test(pin)) {
+      showError('O PIN deve ter de 4 a 6 números.');
+      return;
+    }
+    if (!savedHash) {
+      if (pin !== confirmInput.value.trim()) {
+        showError('Os PINs não conferem.');
+        return;
+      }
+      localStorage.setItem(LS_PIN_KEY, await sha256Hex(pin));
+      sessionStorage.setItem(SS_UNLOCKED_KEY, '1');
+      showAppShell();
+      startApp();
+      return;
+    }
+    const hash = await sha256Hex(pin);
+    if (hash === savedHash) {
+      sessionStorage.setItem(SS_UNLOCKED_KEY, '1');
+      showAppShell();
+      startApp();
+    } else {
+      showError('PIN incorreto. Tente novamente.');
+      input.value = '';
+      input.focus();
+    }
+  }
+
+  submitBtn.onclick = handleSubmit;
+  confirmInput.onkeydown = (e) => { if (e.key === 'Enter') handleSubmit(); };
+  input.onkeydown = (e) => { if (e.key === 'Enter') { confirmInput.classList.contains('hidden') ? handleSubmit() : confirmInput.focus(); } };
+  forgotBtn.onclick = () => {
+    if (confirm('Isso remove o PIN deste aparelho (os dados continuam salvos e sincronizados). Deseja continuar?')) {
+      localStorage.removeItem(LS_PIN_KEY);
+      sessionStorage.removeItem(SS_UNLOCKED_KEY);
+      initLock();
+    }
+  };
+}
+
+function changePin() {
+  const current = localStorage.getItem(LS_PIN_KEY);
+  showModal(`
+    <h3>Alterar PIN</h3>
+    <form class="modal-form" id="pinForm">
+      ${current ? '<label>PIN atual <input type="password" inputmode="numeric" name="oldPin" maxlength="6" required></label>' : ''}
+      <label>Novo PIN <input type="password" inputmode="numeric" name="newPin" maxlength="6" required></label>
+      <label>Confirmar novo PIN <input type="password" inputmode="numeric" name="newPinConfirm" maxlength="6" required></label>
+      <div class="modal-actions">
+        <button type="button" class="btn" id="modalCancel">Cancelar</button>
+        <button type="submit" class="btn primary">Salvar</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('modalCancel').addEventListener('click', closeModal);
+  document.getElementById('pinForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    if (current) {
+      const oldHash = await sha256Hex((fd.get('oldPin') || '').trim());
+      if (oldHash !== current) { toast('PIN atual incorreto.', 'error'); return; }
+    }
+    const newPin = (fd.get('newPin') || '').trim();
+    if (!/^\d{4,6}$/.test(newPin)) { toast('O novo PIN deve ter de 4 a 6 números.', 'error'); return; }
+    if (newPin !== (fd.get('newPinConfirm') || '').trim()) { toast('Os PINs não conferem.', 'error'); return; }
+    localStorage.setItem(LS_PIN_KEY, await sha256Hex(newPin));
+    closeModal();
+    toast('PIN atualizado.', 'success');
+  });
+}
+
+function removePin() {
+  const current = localStorage.getItem(LS_PIN_KEY);
+  if (!current) { toast('Nenhum PIN está ativo.', ''); return; }
+  showModal(`
+    <h3>Remover PIN</h3>
+    <form class="modal-form" id="pinRemoveForm">
+      <label>PIN atual <input type="password" inputmode="numeric" name="oldPin" maxlength="6" required></label>
+      <div class="modal-actions">
+        <button type="button" class="btn" id="modalCancel">Cancelar</button>
+        <button type="submit" class="btn danger">Remover</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('modalCancel').addEventListener('click', closeModal);
+  document.getElementById('pinRemoveForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const oldHash = await sha256Hex((new FormData(e.target).get('oldPin') || '').trim());
+    if (oldHash !== current) { toast('PIN atual incorreto.', 'error'); return; }
+    localStorage.removeItem(LS_PIN_KEY);
+    sessionStorage.removeItem(SS_UNLOCKED_KEY);
+    closeModal();
+    toast('PIN removido deste aparelho.', 'success');
+  });
+}
+
+document.addEventListener('DOMContentLoaded', initLock);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
