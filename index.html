@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Nosso Financeiro</title>
+<link rel="stylesheet" href="style.css">
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2a78d6">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Financeiro">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-left">
+    <span class="brand">💰 Nosso Financeiro</span>
+  </div>
+  <div class="topbar-right">
+    <span id="syncStatus" class="sync-status" title="Status de sincronização">●  offline</span>
+    <button id="themeToggle" class="icon-btn" title="Alternar tema">🌙</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button class="tab-btn active" data-view="dashboard">Dashboard</button>
+  <button class="tab-btn" data-view="transactions">Lançamentos</button>
+  <button class="tab-btn" data-view="investments">Investimentos</button>
+  <button class="tab-btn" data-view="accounts">Contas &amp; Categorias</button>
+  <button class="tab-btn" data-view="settings">Configurações</button>
+</nav>
+
+<div class="filters-bar">
+  <div class="filter-group" id="personFilterGroup">
+    <button class="chip active" data-person="all">Todos</button>
+  </div>
+  <div class="filter-group">
+    <label class="filter-label" for="monthPicker">Mês de referência</label>
+    <input type="month" id="monthPicker">
+  </div>
+</div>
+
+<main id="app">
+
+  <section id="view-dashboard" class="view active">
+    <div class="kpi-grid" id="kpiGrid"></div>
+
+    <div class="card chart-card">
+      <div class="chart-card-head">
+        <div>
+          <h2>Ganho real por mês</h2>
+          <p class="muted-text">Entradas − Despesas + Rendimento de investimentos, últimos 12 meses</p>
+        </div>
+        <div class="chart-legend-manual" id="gainLegend">
+          <span class="legend-chip"><i class="dot dot-good"></i> Acima de zero</span>
+          <span class="legend-chip"><i class="dot dot-critical"></i> Abaixo de zero</span>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="chartGain"></canvas></div>
+      <button class="link-btn" data-table-toggle="tableGain">Ver como tabela</button>
+      <div class="table-view hidden" id="tableGain"></div>
+    </div>
+
+    <div class="two-col">
+      <div class="card chart-card">
+        <h2>Despesas por conta</h2>
+        <p class="muted-text" id="expenseByAccountMonthLabel">Mês selecionado</p>
+        <div class="chart-wrap"><canvas id="chartAccounts"></canvas></div>
+        <button class="link-btn" data-table-toggle="tableAccounts">Ver como tabela</button>
+        <div class="table-view hidden" id="tableAccounts"></div>
+      </div>
+
+      <div class="card chart-card">
+        <h2>Entradas x Despesas x Rendimento</h2>
+        <p class="muted-text">Últimos 12 meses</p>
+        <div class="chart-wrap"><canvas id="chartFlow"></canvas></div>
+        <button class="link-btn" data-table-toggle="tableFlow">Ver como tabela</button>
+        <div class="table-view hidden" id="tableFlow"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-transactions" class="view">
+    <div class="section-head">
+      <h2>Lançamentos</h2>
+      <button class="btn primary" id="btnNewTransaction">+ Novo lançamento</button>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table" id="transactionsTable">
+        <thead>
+          <tr>
+            <th>Data</th><th>Tipo</th><th>Categoria</th><th>Conta</th><th>Pessoa</th><th>Descrição</th><th>Valor</th><th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="empty-state hidden" id="transactionsEmpty">Nenhum lançamento neste período. Clique em "Novo lançamento" para começar.</p>
+  </section>
+
+  <section id="view-investments" class="view">
+    <div class="kpi-grid" id="investKpiGrid"></div>
+    <div class="section-head">
+      <h2>Investimentos</h2>
+      <button class="btn primary" id="btnNewInvestment">+ Nova movimentação</button>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table" id="investmentsTable">
+        <thead>
+          <tr>
+            <th>Data</th><th>Tipo</th><th>Conta</th><th>Pessoa</th><th>Descrição</th><th>Valor</th><th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="empty-state hidden" id="investmentsEmpty">Nenhuma movimentação de investimento neste período.</p>
+  </section>
+
+  <section id="view-accounts" class="view">
+    <div class="two-col">
+      <div class="card">
+        <div class="section-head">
+          <h2>Contas</h2>
+          <button class="btn" id="btnNewAccount">+ Nova conta</button>
+        </div>
+        <ul class="simple-list" id="accountsList"></ul>
+      </div>
+      <div class="card">
+        <div class="section-head">
+          <h2>Categorias</h2>
+          <button class="btn" id="btnNewCategory">+ Nova categoria</button>
+        </div>
+        <ul class="simple-list" id="categoriesList"></ul>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Pessoas</h2>
+      <p class="muted-text">Os nomes usados nos filtros e nos lançamentos.</p>
+      <div class="people-edit" id="peopleEdit"></div>
+    </div>
+  </section>
+
+  <section id="view-settings" class="view">
+    <div class="card">
+      <h2>Sincronização online (JSONBin)</h2>
+      <p class="muted-text">
+        Cole aqui a API Key e o Bin ID da sua conta em <strong>jsonbin.io</strong>.
+        Esses dados ficam salvos apenas neste navegador e são usados para sincronizar
+        os dados entre os dispositivos de vocês dois.
+      </p>
+      <div class="form-grid">
+        <label>API Key
+          <input type="password" id="jsonbinKey" placeholder="$2a$10$...">
+        </label>
+        <label>Bin ID
+          <input type="text" id="jsonbinBinId" placeholder="65f1...">
+        </label>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnSaveConfig">Salvar configuração</button>
+        <button class="btn" id="btnPullNow">Buscar do JSONBin agora</button>
+        <button class="btn" id="btnPushNow">Enviar para o JSONBin agora</button>
+      </div>
+      <p class="muted-text" id="lastSyncInfo"></p>
+    </div>
+
+    <div class="card">
+      <h2>Backup local</h2>
+      <p class="muted-text">Exporte um arquivo de segurança com todos os dados, ou importe um backup anterior.</p>
+      <div class="btn-row">
+        <button class="btn" id="btnExport">Exportar backup (.json)</button>
+        <label class="btn file-btn">Importar backup
+          <input type="file" id="importFile" accept="application/json" hidden>
+        </label>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div class="modal-overlay hidden" id="modalOverlay">
+  <div class="modal" id="modalBox"></div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
