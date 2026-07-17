@@ -38,11 +38,17 @@ function defaultState() {
     ],
     transactions: [],
     investments: [],
+    provisions: [],
     updatedAt: new Date().toISOString()
   };
 }
 
-let state = loadLocal() || defaultState();
+function ensureShape(s) {
+  if (!s.provisions) s.provisions = [];
+  return s;
+}
+
+let state = ensureShape(loadLocal() || defaultState());
 let config = loadConfig();
 let currentView = 'dashboard';
 let personFilter = 'all';
@@ -123,7 +129,7 @@ async function pullFromJsonBin(showToast = true) {
     const json = await res.json();
     const remote = json.record;
     if (remote && remote.transactions) {
-      state = remote;
+      state = ensureShape(remote);
       saveLocal();
       renderAll();
       if (showToast) toast('Dados atualizados a partir do JSONBin.', 'success');
@@ -233,6 +239,48 @@ function investmentBalance() {
   return { aportes, retiradas, rendimento, total: aportes - retiradas + rendimento };
 }
 
+function provisionStatus(prov, mk) {
+  const [py, pm] = prov.startMonth.split('-').map(Number);
+  const [my, mm] = mk.split('-').map(Number);
+  const currentInstallment = (my - py) * 12 + (mm - pm) + 1;
+
+  if (currentInstallment < 1) {
+    return { active: false, label: 'Ainda não iniciado', installmentLabel: prov.totalInstallments ? `0/${prov.totalInstallments}` : 'Recorrente' };
+  }
+  if (prov.totalInstallments) {
+    if (currentInstallment > prov.totalInstallments) {
+      return { active: false, label: 'Concluído', installmentLabel: `${prov.totalInstallments}/${prov.totalInstallments}` };
+    }
+    return { active: true, label: `Parcela ${currentInstallment}/${prov.totalInstallments}`, installmentLabel: `${currentInstallment}/${prov.totalInstallments}` };
+  }
+  return { active: true, label: 'Recorrente', installmentLabel: 'Recorrente' };
+}
+
+function provisionsForMonth(mk) {
+  return state.provisions.filter(p => matchesPerson(p.personId) && provisionStatus(p, mk).active);
+}
+
+function provisionsTotals(mk) {
+  const active = provisionsForMonth(mk);
+  const total = active.reduce((s, p) => s + p.monthlyAmount, 0);
+  return { total, count: active.length };
+}
+
+function provisionsByArea(mk) {
+  const map = {};
+  provisionsForMonth(mk).forEach(p => {
+    const area = p.area || 'Outros';
+    map[area] = (map[area] || 0) + p.monthlyAmount;
+  });
+  return map;
+}
+
+function stringToColorIndex(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+  return hash % 8;
+}
+
 /* ---------- Render: shell ---------- */
 
 function renderAll() {
@@ -240,6 +288,7 @@ function renderAll() {
   renderDashboard();
   renderTransactions();
   renderInvestments();
+  renderProvisions();
   renderAccountsView();
   renderSettingsSyncInfo();
 }
@@ -613,6 +662,152 @@ function openInvestmentModal(id) {
   });
 }
 
+/* ---------- Provisionamentos ---------- */
+
+function renderProvisions() {
+  const t = provisionsTotals(currentMonth);
+  const despesasMes = monthTotals(currentMonth).despesas;
+  const pct = despesasMes > 0 ? (t.total / despesasMes) * 100 : 0;
+  document.getElementById('provisionKpiGrid').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">Comprometido no mês</div><div class="kpi-value critical">${formatCurrency(t.total)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Compromissos ativos</div><div class="kpi-value">${t.count}</div></div>
+    <div class="kpi-card"><div class="kpi-label">% das despesas do mês</div><div class="kpi-value">${despesasMes > 0 ? pct.toFixed(0) + '%' : '—'}</div></div>
+  `;
+
+  const rows = state.provisions
+    .filter(p => matchesPerson(p.personId))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const tbody = document.querySelector('#provisionsTable tbody');
+  tbody.innerHTML = '';
+  document.getElementById('provisionsEmpty').classList.toggle('hidden', rows.length > 0);
+
+  rows.forEach(p => {
+    const status = provisionStatus(p, currentMonth);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${p.name}</td>
+      <td>${p.area || '—'}</td>
+      <td>${formatCurrency(p.monthlyAmount)}</td>
+      <td>${status.installmentLabel}</td>
+      <td>${accountName(p.accountId)}</td>
+      <td>${personName(p.personId)}</td>
+      <td><span class="tag">${status.active ? 'Ativo' : status.label}</span></td>
+      <td class="row-actions">
+        <button data-edit="${p.id}" title="Editar">✏️</button>
+        <button data-del="${p.id}" title="Excluir">🗑️</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+
+  tbody.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => openProvisionModal(b.dataset.edit)));
+  tbody.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
+    if (confirm('Excluir este provisionamento?')) {
+      state.provisions = state.provisions.filter(p => p.id !== b.dataset.del);
+      scheduleSync(); renderAll();
+    }
+  }));
+
+  renderProvisionsChart();
+}
+
+function renderProvisionsChart() {
+  document.getElementById('provisionsByAreaMonthLabel').textContent = 'Mês: ' + monthLabel(currentMonth);
+  const map = provisionsByArea(currentMonth);
+  let entries = Object.entries(map)
+    .map(([area, value]) => ({ name: area, value, color: cssVar('--series-' + (stringToColorIndex(area) + 1)) }))
+    .sort((a, b) => b.value - a.value);
+
+  if (charts.provisions) charts.provisions.destroy();
+  const ctx = document.getElementById('chartProvisions').getContext('2d');
+  if (entries.length === 0) {
+    charts.provisions = null;
+    ctx.clearRect(0, 0, 999, 999);
+    document.getElementById('tableProvisions').innerHTML = '<p class="muted-text">Nenhum compromisso ativo neste mês.</p>';
+    return;
+  }
+  charts.provisions = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: entries.map(e => e.name),
+      datasets: [{ data: entries.map(e => e.value), backgroundColor: entries.map(e => e.color), borderRadius: 4 }]
+    },
+    options: { ...baseChartOptions({ legend: false, currency: true }), indexAxis: 'y' }
+  });
+
+  const rows = entries.map(e => `<tr><td>${e.name}</td><td>${formatCurrency(e.value)}</td></tr>`).join('');
+  document.getElementById('tableProvisions').innerHTML = `<table><thead><tr><th>Área</th><th>Valor comprometido</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function areaOptions() {
+  const used = state.provisions.map(p => p.area).filter(Boolean);
+  const defaults = ['Streaming', 'Assinatura', 'Parcelamento', 'Financiamento'];
+  const all = [...new Set([...defaults, ...used])];
+  return all.map(a => `<option value="${a}"></option>`).join('');
+}
+
+function openProvisionModal(id) {
+  const p = id ? state.provisions.find(x => x.id === id) : null;
+
+  showModal(`
+    <h3>${p ? 'Editar' : 'Novo'} provisionamento</h3>
+    <form class="modal-form" id="provForm">
+      <label>Nome <input type="text" name="name" required placeholder="Ex: Netflix, Parcelamento geladeira" value="${p ? p.name : ''}"></label>
+      <label>Área
+        <input type="text" name="area" list="areaList" placeholder="Ex: Streaming, Parcelamento" value="${p ? (p.area || '') : ''}">
+        <datalist id="areaList">${areaOptions()}</datalist>
+      </label>
+      <label>Valor mensal (R$) <input type="number" step="0.01" min="0" name="monthlyAmount" required value="${p ? p.monthlyAmount : ''}"></label>
+      <label>Mês de início <input type="month" name="startMonth" required value="${p ? p.startMonth : currentMonth}"></label>
+      <label>Parcelas totais (deixe vazio se for recorrente sem prazo) <input type="number" min="1" step="1" name="totalInstallments" value="${p && p.totalInstallments ? p.totalInstallments : ''}"></label>
+      <label>Conta
+        <select name="accountId">${accountOptions(p?.accountId)}</select>
+      </label>
+      <label>Pessoa
+        <select name="personId">${personOptions(p?.personId)}</select>
+      </label>
+      <label>Descrição <input type="text" name="note" value="${p ? (p.note || '') : ''}"></label>
+      <div class="modal-actions">
+        ${p ? '<button type="button" class="btn danger" id="provDelete">Excluir</button>' : ''}
+        <button type="button" class="btn" id="modalCancel">Cancelar</button>
+        <button type="submit" class="btn primary">Salvar</button>
+      </div>
+    </form>
+  `);
+
+  document.getElementById('modalCancel').addEventListener('click', closeModal);
+  if (p) document.getElementById('provDelete').addEventListener('click', () => {
+    if (confirm('Excluir este provisionamento?')) {
+      state.provisions = state.provisions.filter(x => x.id !== p.id);
+      scheduleSync(); closeModal(); renderAll();
+    }
+  });
+
+  document.getElementById('provForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const totalRaw = fd.get('totalInstallments');
+    const record = {
+      id: p ? p.id : uid(),
+      name: fd.get('name').trim(),
+      area: (fd.get('area') || '').trim(),
+      monthlyAmount: parseFloat(fd.get('monthlyAmount')) || 0,
+      startMonth: fd.get('startMonth'),
+      totalInstallments: totalRaw ? parseInt(totalRaw, 10) : null,
+      accountId: fd.get('accountId') || null,
+      personId: fd.get('personId') || null,
+      note: fd.get('note') || ''
+    };
+    if (p) {
+      const idx = state.provisions.findIndex(x => x.id === p.id);
+      state.provisions[idx] = record;
+    } else {
+      state.provisions.push(record);
+    }
+    scheduleSync(); closeModal(); renderAll();
+  });
+}
+
 /* ---------- Contas & Categorias ---------- */
 
 function renderAccountsView() {
@@ -775,7 +970,7 @@ function importBackup(file) {
     try {
       const parsed = JSON.parse(reader.result);
       if (!parsed.transactions || !parsed.accounts) throw new Error('Arquivo inválido');
-      state = parsed;
+      state = ensureShape(parsed);
       scheduleSync();
       renderAll();
       toast('Backup importado com sucesso.', 'success');
@@ -810,6 +1005,7 @@ function startApp() {
 
   document.getElementById('btnNewTransaction').addEventListener('click', () => openTransactionModal(null));
   document.getElementById('btnNewInvestment').addEventListener('click', () => openInvestmentModal(null));
+  document.getElementById('btnNewProvision').addEventListener('click', () => openProvisionModal(null));
   document.getElementById('btnNewAccount').addEventListener('click', openAccountModal);
   document.getElementById('btnNewCategory').addEventListener('click', openCategoryModal);
 

@@ -46,6 +46,7 @@
   <button class="tab-btn active" data-view="dashboard">Dashboard</button>
   <button class="tab-btn" data-view="transactions">Lançamentos</button>
   <button class="tab-btn" data-view="investments">Investimentos</button>
+  <button class="tab-btn" data-view="provisions">Provisionamentos</button>
   <button class="tab-btn" data-view="accounts">Contas &amp; Categorias</button>
   <button class="tab-btn" data-view="settings">Configurações</button>
 </nav>
@@ -135,6 +136,35 @@
       </table>
     </div>
     <p class="empty-state hidden" id="investmentsEmpty">Nenhuma movimentação de investimento neste período.</p>
+  </section>
+
+  <section id="view-provisions" class="view">
+    <div class="kpi-grid" id="provisionKpiGrid"></div>
+
+    <div class="card chart-card">
+      <h2>Custos comprometidos por área</h2>
+      <p class="muted-text" id="provisionsByAreaMonthLabel">Mês selecionado</p>
+      <div class="chart-wrap"><canvas id="chartProvisions"></canvas></div>
+      <button class="link-btn" data-table-toggle="tableProvisions">Ver como tabela</button>
+      <div class="table-view hidden" id="tableProvisions"></div>
+    </div>
+
+    <div class="section-head">
+      <h2>Provisionamentos</h2>
+      <button class="btn primary" id="btnNewProvision">+ Novo provisionamento</button>
+    </div>
+    <p class="muted-text">Compromissos recorrentes (parcelamentos, assinaturas, streaming). Não geram lançamento automático — é um painel à parte para entender quanto do orçamento já está comprometido.</p>
+    <div class="table-scroll">
+      <table class="data-table" id="provisionsTable">
+        <thead>
+          <tr>
+            <th>Nome</th><th>Área</th><th>Valor mensal</th><th>Parcelas</th><th>Conta</th><th>Pessoa</th><th>Status</th><th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="empty-state hidden" id="provisionsEmpty">Nenhum provisionamento cadastrado ainda.</p>
   </section>
 
   <section id="view-accounts" class="view">
