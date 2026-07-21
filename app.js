@@ -69,11 +69,17 @@ function saveLocal() {
 function loadConfig() {
   try {
     const raw = localStorage.getItem(LS_CONFIG_KEY);
-    return raw ? JSON.parse(raw) : { apiKey: '', binId: '', lastSync: null };
-  } catch (e) { return { apiKey: '', binId: '', lastSync: null }; }
+    if (!raw) return { apiKey: '', binId: '', lastSync: null, keyType: 'access' };
+    const parsed = JSON.parse(raw);
+    if (!parsed.keyType) parsed.keyType = 'master'; // configs salvos antes dessa opção existir
+    return parsed;
+  } catch (e) { return { apiKey: '', binId: '', lastSync: null, keyType: 'access' }; }
 }
 function saveConfig() {
   localStorage.setItem(LS_CONFIG_KEY, JSON.stringify(config));
+}
+function authHeaderName() {
+  return config.keyType === 'access' ? 'X-Access-Key' : 'X-Master-Key';
 }
 
 /* ---------- Sincronização JSONBin ---------- */
@@ -100,7 +106,7 @@ async function pushToJsonBin() {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'X-Master-Key': config.apiKey
+        [authHeaderName()]: config.apiKey
       },
       body: JSON.stringify(state)
     });
@@ -117,13 +123,13 @@ async function pushToJsonBin() {
 
 async function pullFromJsonBin(showToast = true) {
   if (!config.apiKey || !config.binId) {
-    toast('Configure a API Key e o Bin ID primeiro.', 'error');
+    toast('Configure a chave e o Bin ID primeiro.', 'error');
     return;
   }
   setSyncStatus('pending', 'buscando…');
   try {
     const res = await fetch(`https://api.jsonbin.io/v3/b/${config.binId}/latest`, {
-      headers: { 'X-Master-Key': config.apiKey }
+      headers: { [authHeaderName()]: config.apiKey }
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const json = await res.json();
@@ -939,6 +945,7 @@ function openCategoryModal() {
 function renderSettingsSyncInfo() {
   document.getElementById('jsonbinKey').value = config.apiKey || '';
   document.getElementById('jsonbinBinId').value = config.binId || '';
+  document.getElementById('jsonbinKeyType').value = config.keyType || 'access';
   const info = document.getElementById('lastSyncInfo');
   info.textContent = config.lastSync
     ? 'Última sincronização: ' + new Date(config.lastSync).toLocaleString('pt-BR')
@@ -1046,6 +1053,7 @@ function startApp() {
   document.getElementById('btnSaveConfig').addEventListener('click', () => {
     config.apiKey = document.getElementById('jsonbinKey').value.trim();
     config.binId = document.getElementById('jsonbinBinId').value.trim();
+    config.keyType = document.getElementById('jsonbinKeyType').value;
     saveConfig();
     toast('Configuração salva neste navegador.', 'success');
     renderSettingsSyncInfo();

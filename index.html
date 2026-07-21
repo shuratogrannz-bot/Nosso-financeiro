@@ -195,18 +195,27 @@
     <div class="card">
       <h2>Sincronização online (JSONBin)</h2>
       <p class="muted-text">
-        Cole aqui a API Key e o Bin ID da sua conta em <strong>jsonbin.io</strong>.
+        Cole aqui a chave e o Bin ID da sua conta em <strong>jsonbin.io</strong>.
         Esses dados ficam salvos apenas neste navegador e são usados para sincronizar
-        os dados entre os dispositivos de vocês dois.
+        os dados entre os dispositivos de vocês.
       </p>
       <div class="form-grid">
-        <label>API Key
-          <input type="password" id="jsonbinKey" placeholder="$2a$10$...">
+        <label>Tipo de chave
+          <select id="jsonbinKeyType">
+            <option value="access">Access Key (individual, recomendado)</option>
+            <option value="master">Master Key (compartilhada)</option>
+          </select>
         </label>
         <label>Bin ID
           <input type="text" id="jsonbinBinId" placeholder="65f1...">
         </label>
+        <label>Chave (Access Key ou Master Key)
+          <input type="password" id="jsonbinKey" placeholder="$2a$10$...">
+        </label>
       </div>
+      <p class="muted-text">
+        Use uma <strong>Access Key</strong> individual (uma para cada pessoa, criada no jsonbin.io com permissão de leitura/escrita só neste bin) para poder revogar o acesso de uma pessoa sem afetar as outras. A Master Key dá acesso total à conta inteira e é compartilhada por todos que a usarem.
+      </p>
       <div class="btn-row">
         <button class="btn primary" id="btnSaveConfig">Salvar configuração</button>
         <button class="btn" id="btnPullNow">Buscar do JSONBin agora</button>
