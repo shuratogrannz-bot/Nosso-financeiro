@@ -296,7 +296,7 @@ function renderAll() {
 function renderPeopleFilters() {
   const group = document.getElementById('personFilterGroup');
   group.innerHTML = '';
-  const opts = [{ id: 'all', name: 'Todos' }, ...state.people];
+  const opts = [{ id: 'all', name: 'Todos' }, ...state.people.filter(p => !p.archived)];
   opts.forEach(p => {
     const b = document.createElement('button');
     b.className = 'chip' + (personFilter === p.id ? ' active' : '');
@@ -545,7 +545,10 @@ function accountOptions(selected) {
   return state.accounts.map(a => `<option value="${a.id}" ${a.id === selected ? 'selected' : ''}>${a.name}</option>`).join('');
 }
 function personOptions(selected) {
-  const opts = state.people.map(p => `<option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${p.name}</option>`).join('');
+  const opts = state.people
+    .filter(p => !p.archived || p.id === selected)
+    .map(p => `<option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${p.name}${p.archived ? ' (arquivada)' : ''}</option>`)
+    .join('');
   return opts + `<option value="" ${!selected ? 'selected' : ''}>Compartilhado</option>`;
 }
 
@@ -842,16 +845,39 @@ function renderAccountsView() {
   }));
 
   const peopleEdit = document.getElementById('peopleEdit');
-  peopleEdit.innerHTML = state.people.map(p => `
-    <label>${p.id === 'p1' ? 'Pessoa 1' : 'Pessoa 2'}
-      <input type="text" data-person-name="${p.id}" value="${p.name}">
-    </label>`).join('');
+  peopleEdit.innerHTML = state.people.map((p, i) => `
+    <div class="person-edit-row">
+      <label>Pessoa ${i + 1}${p.archived ? ' <span class="tag">arquivada</span>' : ''}
+        <input type="text" data-person-name="${p.id}" value="${p.name}">
+      </label>
+      <button type="button" class="btn ${p.archived ? '' : 'danger'}" data-person-toggle="${p.id}">${p.archived ? 'Reativar' : 'Arquivar'}</button>
+    </div>`).join('') + `<button type="button" class="btn" id="btnAddPerson">+ Adicionar pessoa</button>`;
+
   peopleEdit.querySelectorAll('[data-person-name]').forEach(inp => {
     inp.addEventListener('change', () => {
       const p = state.people.find(x => x.id === inp.dataset.personName);
       p.name = inp.value.trim() || p.name;
       scheduleSync(); renderAll();
     });
+  });
+  peopleEdit.querySelectorAll('[data-person-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = state.people.find(x => x.id === btn.dataset.personToggle);
+      if (!p.archived) {
+        if (!confirm(`Arquivar "${p.name}"? Ela some dos filtros e de novos lançamentos, mas todo o histórico dela continua salvo e nada é apagado.`)) return;
+        p.archived = true;
+        if (personFilter === p.id) personFilter = 'all';
+      } else {
+        p.archived = false;
+      }
+      scheduleSync(); renderAll();
+    });
+  });
+  document.getElementById('btnAddPerson').addEventListener('click', () => {
+    const name = prompt('Nome da nova pessoa:');
+    if (!name || !name.trim()) return;
+    state.people.push({ id: uid(), name: name.trim(), archived: false });
+    scheduleSync(); renderAll();
   });
 }
 
