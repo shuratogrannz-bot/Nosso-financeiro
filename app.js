@@ -222,18 +222,20 @@ function matchesPerson(recordPersonId) {
 /* ---------- Cálculos ---------- */
 
 function monthTotals(mk) {
-  let entradas = 0, despesas = 0, rendimento = 0;
+  let entradas = 0, despesas = 0, rendimento = 0, transferido = 0;
   state.transactions.forEach(t => {
     if (monthKey(t.date) !== mk) return;
     if (!matchesPerson(t.personId)) return;
-    if (t.kind === 'entrada') entradas += t.amount; else despesas += t.amount;
+    if (t.kind === 'entrada') entradas += t.amount;
+    else if (t.kind === 'despesa') despesas += t.amount;
+    else if (t.kind === 'transferencia') transferido += t.amount;
   });
   state.investments.forEach(inv => {
     if (monthKey(inv.date) !== mk) return;
     if (!matchesPerson(inv.personId)) return;
     if (inv.movKind === 'rendimento') rendimento += inv.amount;
   });
-  return { entradas, despesas, rendimento, ganhoReal: entradas - despesas + rendimento };
+  return { entradas, despesas, rendimento, transferido, ganhoReal: entradas - despesas + rendimento };
 }
 
 function expensesByAccount(mk) {
@@ -334,6 +336,7 @@ function renderDashboard() {
   kpiGrid.innerHTML = `
     <div class="kpi-card"><div class="kpi-label">Entradas do mês</div><div class="kpi-value good">${formatCurrency(t.entradas)}</div></div>
     <div class="kpi-card"><div class="kpi-label">Despesas do mês</div><div class="kpi-value critical">${formatCurrency(t.despesas)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Transferido (repasses) do mês</div><div class="kpi-value transfer">${formatCurrency(t.transferido)}</div></div>
     <div class="kpi-card"><div class="kpi-label">Rendimento investido</div><div class="kpi-value good">${formatCurrency(t.rendimento)}</div></div>
     <div class="kpi-card"><div class="kpi-label">Ganho real do mês</div><div class="kpi-value ${t.ganhoReal >= 0 ? 'good' : 'critical'}">${formatCurrency(t.ganhoReal)}</div></div>
   `;
@@ -412,14 +415,15 @@ function renderFlowChart() {
       datasets: [
         { label: 'Entradas', data: totals.map(t => t.entradas), backgroundColor: cssVar('--series-1'), borderRadius: 4 },
         { label: 'Despesas', data: totals.map(t => t.despesas), backgroundColor: cssVar('--series-6'), borderRadius: 4 },
-        { label: 'Rendimento', data: totals.map(t => t.rendimento), backgroundColor: cssVar('--series-2'), borderRadius: 4 }
+        { label: 'Rendimento', data: totals.map(t => t.rendimento), backgroundColor: cssVar('--series-2'), borderRadius: 4 },
+        { label: 'Transferido', data: totals.map(t => t.transferido), backgroundColor: cssVar('--series-5'), borderRadius: 4 }
       ]
     },
     options: baseChartOptions({ legend: true, currency: true })
   });
 
-  const rows = months.map((mk, i) => `<tr><td>${monthLabel(mk)}</td><td>${formatCurrency(totals[i].entradas)}</td><td>${formatCurrency(totals[i].despesas)}</td><td>${formatCurrency(totals[i].rendimento)}</td></tr>`).join('');
-  document.getElementById('tableFlow').innerHTML = `<table><thead><tr><th>Mês</th><th>Entradas</th><th>Despesas</th><th>Rendimento</th></tr></thead><tbody>${rows}</tbody></table>`;
+  const rows = months.map((mk, i) => `<tr><td>${monthLabel(mk)}</td><td>${formatCurrency(totals[i].entradas)}</td><td>${formatCurrency(totals[i].despesas)}</td><td>${formatCurrency(totals[i].rendimento)}</td><td>${formatCurrency(totals[i].transferido)}</td></tr>`).join('');
+  document.getElementById('tableFlow').innerHTML = `<table><thead><tr><th>Mês</th><th>Entradas</th><th>Despesas</th><th>Rendimento</th><th>Transferido</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function baseChartOptions({ legend, currency }) {
@@ -447,7 +451,22 @@ function baseChartOptions({ legend, currency }) {
 
 /* ---------- Lançamentos ---------- */
 
+const TX_KIND_LABEL = { entrada: 'Entrada', despesa: 'Despesa', transferencia: 'Transferência' };
+
+function txAmountCell(t) {
+  if (t.kind === 'entrada') return `<td class="amount-in">+ ${formatCurrency(t.amount)}</td>`;
+  if (t.kind === 'despesa') return `<td class="amount-out">− ${formatCurrency(t.amount)}</td>`;
+  return `<td class="amount-transfer">⇄ ${formatCurrency(t.amount)}</td>`;
+}
+
 function renderTransactions() {
+  const t = monthTotals(currentMonth);
+  document.getElementById('transactionsKpiGrid').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">Entradas do mês</div><div class="kpi-value good">${formatCurrency(t.entradas)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Despesas do mês</div><div class="kpi-value critical">${formatCurrency(t.despesas)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Transferido (repasses) do mês</div><div class="kpi-value transfer">${formatCurrency(t.transferido)}</div></div>
+  `;
+
   const rows = state.transactions
     .filter(t => matchesPerson(t.personId))
     .sort((a, b) => b.date.localeCompare(a.date))
@@ -461,12 +480,12 @@ function renderTransactions() {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${formatDate(t.date)}</td>
-      <td>${t.kind === 'entrada' ? 'Entrada' : 'Despesa'}</td>
-      <td>${categoryName(t.categoryId)}</td>
+      <td>${TX_KIND_LABEL[t.kind]}</td>
+      <td>${t.kind === 'transferencia' ? '—' : categoryName(t.categoryId)}</td>
       <td>${accountName(t.accountId)}</td>
       <td>${personName(t.personId)}</td>
       <td>${t.note || ''}</td>
-      <td class="${t.kind === 'entrada' ? 'amount-in' : 'amount-out'}">${t.kind === 'entrada' ? '+' : '−'} ${formatCurrency(t.amount)}</td>
+      ${txAmountCell(t)}
       <td class="row-actions">
         <button data-edit="${t.id}" title="Editar">✏️</button>
         <button data-del="${t.id}" title="Excluir">🗑️</button>
@@ -494,10 +513,14 @@ function openTransactionModal(id) {
       <div class="type-toggle" id="txTypeToggle">
         <button type="button" data-value="entrada" class="${kind === 'entrada' ? 'active' : ''}">Entrada</button>
         <button type="button" data-value="despesa" class="${kind === 'despesa' ? 'active' : ''}">Despesa</button>
+        <button type="button" data-value="transferencia" class="${kind === 'transferencia' ? 'active' : ''}">Transferência</button>
       </div>
+      <p class="muted-text" id="txTransferHint" ${kind === 'transferencia' ? '' : 'style="display:none"'}>
+        Use para dinheiro de passagem (ex: repasse em espécie) — não conta como entrada nem despesa no seu ganho real.
+      </p>
       <label>Data <input type="date" name="date" required value="${t ? t.date : todayLocal()}"></label>
       <label>Valor (R$) <input type="number" step="0.01" min="0" name="amount" required value="${t ? t.amount : ''}"></label>
-      <label>Categoria
+      <label id="txCategoryLabel" ${kind === 'transferencia' ? 'style="display:none"' : ''}>Categoria
         <select name="categoryId">${categoryOptions(kind, t?.categoryId)}</select>
       </label>
       <label>Conta
@@ -506,7 +529,7 @@ function openTransactionModal(id) {
       <label>Pessoa
         <select name="personId">${personOptions(t?.personId)}</select>
       </label>
-      <label>Descrição <input type="text" name="note" value="${t ? (t.note || '') : ''}"></label>
+      <label>Descrição <input type="text" name="note" placeholder="${kind === 'transferencia' ? 'Ex: repasse em espécie para mãe' : ''}" value="${t ? (t.note || '') : ''}"></label>
       <div class="modal-actions">
         ${t ? '<button type="button" class="btn danger" id="txDelete">Excluir</button>' : ''}
         <button type="button" class="btn" id="modalCancel">Cancelar</button>
@@ -521,7 +544,10 @@ function openTransactionModal(id) {
     toggle.querySelectorAll('button').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     selectedKind = b.dataset.value;
-    document.querySelector('#txForm select[name="categoryId"]').innerHTML = categoryOptions(selectedKind);
+    const isTransfer = selectedKind === 'transferencia';
+    document.getElementById('txCategoryLabel').style.display = isTransfer ? 'none' : '';
+    document.getElementById('txTransferHint').style.display = isTransfer ? '' : 'none';
+    if (!isTransfer) document.querySelector('#txForm select[name="categoryId"]').innerHTML = categoryOptions(selectedKind);
   }));
 
   document.getElementById('modalCancel').addEventListener('click', closeModal);
@@ -540,7 +566,7 @@ function openTransactionModal(id) {
       kind: selectedKind,
       date: fd.get('date'),
       amount: parseFloat(fd.get('amount')) || 0,
-      categoryId: fd.get('categoryId') || null,
+      categoryId: selectedKind === 'transferencia' ? null : (fd.get('categoryId') || null),
       accountId: fd.get('accountId') || null,
       personId: fd.get('personId') || null,
       note: fd.get('note') || ''
