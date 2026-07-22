@@ -47,6 +47,7 @@
   <button class="tab-btn" data-view="transactions">Lançamentos</button>
   <button class="tab-btn" data-view="investments">Investimentos</button>
   <button class="tab-btn" data-view="provisions">Provisionamentos</button>
+  <button class="tab-btn" data-view="statement">Extrato</button>
   <button class="tab-btn" data-view="accounts">Contas &amp; Categorias</button>
   <button class="tab-btn" data-view="settings">Configurações</button>
 </nav>
@@ -65,6 +66,18 @@
 
   <section id="view-dashboard" class="view active">
     <div class="kpi-grid" id="kpiGrid"></div>
+
+    <div class="alert-banner hidden" id="balanceAlertBanner"></div>
+
+    <div class="card">
+      <div class="chart-card-head">
+        <div>
+          <h2>Saldo por conta</h2>
+          <p class="muted-text">Estimado a partir do saldo inicial informado + lançamentos. Projeção considera os compromissos ativos do mês (Provisionamentos) ainda não lançados.</p>
+        </div>
+      </div>
+      <ul class="simple-list" id="accountBalanceList"></ul>
+    </div>
 
     <div class="card chart-card">
       <div class="chart-card-head">
@@ -154,18 +167,52 @@
       <h2>Provisionamentos</h2>
       <button class="btn primary" id="btnNewProvision">+ Novo provisionamento</button>
     </div>
-    <p class="muted-text">Compromissos recorrentes (parcelamentos, assinaturas, streaming). Não geram lançamento automático — é um painel à parte para entender quanto do orçamento já está comprometido.</p>
+    <p class="muted-text">Compromissos recorrentes (parcelamentos, assinaturas, streaming) e entradas previstas (ex: repasse recorrente). Não geram lançamento automático — é um painel à parte para entender quanto do orçamento já está comprometido.</p>
     <div class="table-scroll">
       <table class="data-table" id="provisionsTable">
         <thead>
           <tr>
-            <th>Nome</th><th>Área</th><th>Valor mensal</th><th>Parcelas</th><th>Conta</th><th>Pessoa</th><th>Status</th><th></th>
+            <th>Nome</th><th>Tipo</th><th>Área</th><th>Valor mensal</th><th>Parcelas</th><th>Conta</th><th>Pessoa</th><th>Status</th><th></th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
     </div>
     <p class="empty-state hidden" id="provisionsEmpty">Nenhum provisionamento cadastrado ainda.</p>
+  </section>
+
+  <section id="view-statement" class="view">
+    <div class="section-head">
+      <h2>Extrato consolidado</h2>
+      <label class="filter-label" for="statementYear">Ano
+        <select id="statementYear"></select>
+      </label>
+    </div>
+    <p class="muted-text">Visão anual, ignora o filtro de pessoa acima (aqui o objetivo é justamente comparar todo mundo/todas as contas lado a lado) — útil para declaração de IR ou conferência geral.</p>
+
+    <div class="card">
+      <h2>Por pessoa</h2>
+      <div class="table-scroll">
+        <table class="data-table" id="statementByPersonTable">
+          <thead>
+            <tr><th>Pessoa</th><th>Entradas</th><th>Despesas</th><th>Transferido</th><th>Rendimento</th><th>Ganho real</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Por conta</h2>
+      <div class="table-scroll">
+        <table class="data-table" id="statementByAccountTable">
+          <thead>
+            <tr><th>Conta</th><th>Entradas</th><th>Despesas</th><th>Transferido</th><th>Saldo (entradas − despesas)</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
   </section>
 
   <section id="view-accounts" class="view">

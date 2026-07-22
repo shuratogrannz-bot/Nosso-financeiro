@@ -198,6 +198,15 @@ input[type="month"] {
 
 .empty-state { text-align: center; color: var(--text-muted); padding: 30px 0; }
 
+.alert-banner {
+  background: color-mix(in srgb, var(--status-critical) 12%, var(--surface-1));
+  border: 1px solid var(--status-critical); border-radius: var(--radius);
+  padding: 14px 16px; margin-bottom: 20px; font-size: 0.88rem; color: var(--text-primary);
+}
+.alert-banner.hidden { display: none; }
+.alert-banner ul { margin: 6px 0 0; padding-left: 18px; }
+.alert-banner strong { color: var(--status-critical); }
+
 .simple-list { list-style: none; padding: 0; margin: 0; }
 .simple-list li {
   display: flex; align-items: center; justify-content: space-between;
@@ -206,6 +215,7 @@ input[type="month"] {
 .simple-list li:last-child { border-bottom: none; }
 .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
 .tag { font-size: 0.72rem; color: var(--text-muted); border: 1px solid var(--border); padding: 2px 6px; border-radius: 999px; margin-left: 6px; }
+.tag-critical { color: var(--status-critical); border-color: var(--status-critical); font-weight: 600; }
 
 .people-edit { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-end; }
 .people-edit label { display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; color: var(--text-secondary); }

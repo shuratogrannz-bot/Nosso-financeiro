@@ -29,11 +29,11 @@ function defaultState() {
       { id: 'p2', name: 'Naira' }
     ],
     accounts: [
-      { id: uid(), name: 'Nubank', colorIndex: 0 },
-      { id: uid(), name: 'Inter', colorIndex: 1 },
-      { id: uid(), name: 'Santander', colorIndex: 2 },
-      { id: uid(), name: 'Itaú', colorIndex: 3 },
-      { id: uid(), name: 'Mercado Pago', colorIndex: 4 }
+      { id: uid(), name: 'Nubank', colorIndex: 0, openingBalance: 0, openingBalanceDate: null },
+      { id: uid(), name: 'Inter', colorIndex: 1, openingBalance: 0, openingBalanceDate: null },
+      { id: uid(), name: 'Santander', colorIndex: 2, openingBalance: 0, openingBalanceDate: null },
+      { id: uid(), name: 'Itaú', colorIndex: 3, openingBalance: 0, openingBalanceDate: null },
+      { id: uid(), name: 'Mercado Pago', colorIndex: 4, openingBalance: 0, openingBalanceDate: null }
     ],
     categories: [
       { id: uid(), name: 'Salário', kind: 'entrada' },
@@ -58,6 +58,13 @@ function defaultState() {
 function ensureShape(s) {
   if (!s.provisions) s.provisions = [];
   if (s.investmentSuggestionPct == null) s.investmentSuggestionPct = 20;
+  s.accounts.forEach(a => {
+    if (a.openingBalance == null) a.openingBalance = 0;
+    if (a.openingBalanceDate === undefined) a.openingBalanceDate = null;
+  });
+  s.provisions.forEach(p => {
+    if (!p.kind) p.kind = 'despesa';
+  });
   return s;
 }
 
@@ -66,6 +73,7 @@ let config = loadConfig();
 let currentView = 'dashboard';
 let personFilter = 'all';
 let currentMonth = currentMonthLocal();
+let statementYear = currentMonthLocal().slice(0, 4);
 let charts = {};
 let editingId = null;
 
@@ -283,15 +291,88 @@ function provisionsForMonth(mk) {
 
 function provisionsTotals(mk) {
   const active = provisionsForMonth(mk);
-  const total = active.reduce((s, p) => s + p.monthlyAmount, 0);
-  return { total, count: active.length };
+  const despesaProvs = active.filter(p => p.kind !== 'entrada');
+  const entradaProvs = active.filter(p => p.kind === 'entrada');
+  const totalDespesas = despesaProvs.reduce((s, p) => s + p.monthlyAmount, 0);
+  const totalEntradas = entradaProvs.reduce((s, p) => s + p.monthlyAmount, 0);
+  return { total: totalDespesas, totalEntradas, netImpact: totalDespesas - totalEntradas, count: active.length };
 }
 
 function provisionsByArea(mk) {
   const map = {};
-  provisionsForMonth(mk).forEach(p => {
+  provisionsForMonth(mk).filter(p => p.kind !== 'entrada').forEach(p => {
     const area = p.area || 'Outros';
     map[area] = (map[area] || 0) + p.monthlyAmount;
+  });
+  return map;
+}
+
+// Comprometido líquido restante do mês numa conta: despesas previstas menos entradas previstas (ex: repasse recorrente) ainda não lançadas
+function committedNetForAccount(accountId, mk) {
+  return provisionsForMonth(mk)
+    .filter(p => p.accountId === accountId)
+    .reduce((s, p) => s + (p.kind === 'entrada' ? -p.monthlyAmount : p.monthlyAmount), 0);
+}
+
+// Saldo estimado de uma conta: saldo inicial informado + entradas - despesas lançadas desde a data do saldo inicial.
+// Transferências não alteram o saldo (dinheiro de passagem: entra e sai da mesma conta, efeito líquido zero).
+function accountBalanceThrough(accountId, throughDate) {
+  const acc = state.accounts.find(a => a.id === accountId);
+  if (!acc) return 0;
+  const sinceDate = acc.openingBalanceDate || '0000-01-01';
+  let bal = acc.openingBalance || 0;
+  state.transactions.forEach(t => {
+    if (t.accountId !== accountId) return;
+    if (t.date <= sinceDate || t.date > throughDate) return;
+    if (t.kind === 'entrada') bal += t.amount;
+    else if (t.kind === 'despesa') bal -= t.amount;
+  });
+  return bal;
+}
+
+function accountProjectedBalance(accountId) {
+  const today = todayLocal();
+  const mk = currentMonthLocal();
+  const current = accountBalanceThrough(accountId, today);
+  const remaining = committedNetForAccount(accountId, mk);
+  return { current, projected: current - remaining, remaining };
+}
+
+/* ---------- Extrato consolidado ---------- */
+
+function availableYears() {
+  const years = new Set([todayLocal().slice(0, 4)]);
+  state.transactions.forEach(t => years.add(t.date.slice(0, 4)));
+  state.investments.forEach(i => years.add(i.date.slice(0, 4)));
+  return [...years].sort((a, b) => b.localeCompare(a));
+}
+
+function yearStatsByPerson(year) {
+  const map = {};
+  const ensure = (key) => map[key] || (map[key] = { entradas: 0, despesas: 0, transferido: 0, rendimento: 0 });
+  state.transactions.forEach(t => {
+    if (t.date.slice(0, 4) !== year) return;
+    const bucket = ensure(t.personId || 'shared');
+    if (t.kind === 'entrada') bucket.entradas += t.amount;
+    else if (t.kind === 'despesa') bucket.despesas += t.amount;
+    else if (t.kind === 'transferencia') bucket.transferido += t.amount;
+  });
+  state.investments.forEach(inv => {
+    if (inv.date.slice(0, 4) !== year || inv.movKind !== 'rendimento') return;
+    ensure(inv.personId || 'shared').rendimento += inv.amount;
+  });
+  return map;
+}
+
+function yearStatsByAccount(year) {
+  const map = {};
+  const ensure = (key) => map[key] || (map[key] = { entradas: 0, despesas: 0, transferido: 0 });
+  state.transactions.forEach(t => {
+    if (t.date.slice(0, 4) !== year || !t.accountId) return;
+    const bucket = ensure(t.accountId);
+    if (t.kind === 'entrada') bucket.entradas += t.amount;
+    else if (t.kind === 'despesa') bucket.despesas += t.amount;
+    else if (t.kind === 'transferencia') bucket.transferido += t.amount;
   });
   return map;
 }
@@ -310,6 +391,7 @@ function renderAll() {
   renderTransactions();
   renderInvestments();
   renderProvisions();
+  renderStatement();
   renderAccountsView();
   renderSettingsSyncInfo();
 }
@@ -341,9 +423,38 @@ function renderDashboard() {
     <div class="kpi-card"><div class="kpi-label">Ganho real do mês</div><div class="kpi-value ${t.ganhoReal >= 0 ? 'good' : 'critical'}">${formatCurrency(t.ganhoReal)}</div></div>
   `;
 
+  renderAccountBalances();
   renderGainChart();
   renderAccountsChart();
   renderFlowChart();
+}
+
+function renderAccountBalances() {
+  const list = document.getElementById('accountBalanceList');
+  const atRisk = [];
+  list.innerHTML = state.accounts.map(a => {
+    const { current, projected, remaining } = accountProjectedBalance(a.id);
+    const hasCommitments = remaining !== 0;
+    if (projected < 0) atRisk.push({ name: a.name, projected });
+    return `
+      <li>
+        <span><i class="swatch" style="background:${accountColor(a)}"></i>${a.name}</span>
+        <span>
+          <span class="tag">saldo hoje: ${formatCurrency(current)}</span>
+          ${hasCommitments ? `<span class="tag ${projected < 0 ? 'tag-critical' : ''}">projeção fim do mês: ${formatCurrency(projected)}</span>` : ''}
+        </span>
+      </li>`;
+  }).join('');
+
+  const banner = document.getElementById('balanceAlertBanner');
+  if (atRisk.length === 0) {
+    banner.classList.add('hidden');
+    banner.innerHTML = '';
+  } else {
+    banner.classList.remove('hidden');
+    banner.innerHTML = `⚠️ <strong>Atenção:</strong> considerando os compromissos ativos deste mês ainda não lançados, ${atRisk.length > 1 ? 'estas contas podem ficar negativas' : 'esta conta pode ficar negativa'}:
+      <ul>${atRisk.map(r => `<li>${r.name}: ${formatCurrency(r.projected)}</li>`).join('')}</ul>`;
+  }
 }
 
 function renderGainChart() {
@@ -733,7 +844,9 @@ function renderProvisions() {
   const despesasMes = monthTotals(currentMonth).despesas;
   const pct = despesasMes > 0 ? (t.total / despesasMes) * 100 : 0;
   document.getElementById('provisionKpiGrid').innerHTML = `
-    <div class="kpi-card"><div class="kpi-label">Comprometido no mês</div><div class="kpi-value critical">${formatCurrency(t.total)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Comprometido (saídas) do mês</div><div class="kpi-value critical">${formatCurrency(t.total)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Previsto (entradas) do mês</div><div class="kpi-value good">${formatCurrency(t.totalEntradas)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Impacto líquido do mês</div><div class="kpi-value ${t.netImpact <= 0 ? 'good' : 'critical'}">${formatCurrency(t.netImpact)}</div></div>
     <div class="kpi-card"><div class="kpi-label">Compromissos ativos</div><div class="kpi-value">${t.count}</div></div>
     <div class="kpi-card"><div class="kpi-label">% das despesas do mês</div><div class="kpi-value">${despesasMes > 0 ? pct.toFixed(0) + '%' : '—'}</div></div>
   `;
@@ -751,6 +864,7 @@ function renderProvisions() {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${p.name}</td>
+      <td>${p.kind === 'entrada' ? 'Entrada' : 'Custo'}</td>
       <td>${p.area || '—'}</td>
       <td>${formatCurrency(p.monthlyAmount)}</td>
       <td>${status.installmentLabel}</td>
@@ -812,13 +926,18 @@ function areaOptions() {
 
 function openProvisionModal(id) {
   const p = id ? state.provisions.find(x => x.id === id) : null;
+  const kind = p ? p.kind : 'despesa';
 
   showModal(`
     <h3>${p ? 'Editar' : 'Novo'} provisionamento</h3>
     <form class="modal-form" id="provForm">
-      <label>Nome <input type="text" name="name" required placeholder="Ex: Netflix, Parcelamento geladeira" value="${p ? p.name : ''}"></label>
+      <div class="type-toggle" id="provTypeToggle">
+        <button type="button" data-value="despesa" class="${kind === 'despesa' ? 'active' : ''}">Custo (saída)</button>
+        <button type="button" data-value="entrada" class="${kind === 'entrada' ? 'active' : ''}">Entrada prevista</button>
+      </div>
+      <label>Nome <input type="text" name="name" required placeholder="Ex: Netflix, Parcelamento geladeira, Repasse mãe" value="${p ? p.name : ''}"></label>
       <label>Área
-        <input type="text" name="area" list="areaList" placeholder="Ex: Streaming, Parcelamento" value="${p ? (p.area || '') : ''}">
+        <input type="text" name="area" list="areaList" placeholder="Ex: Streaming, Parcelamento, Repasse" value="${p ? (p.area || '') : ''}">
         <datalist id="areaList">${areaOptions()}</datalist>
       </label>
       <label>Valor mensal (R$) <input type="number" step="0.01" min="0" name="monthlyAmount" required value="${p ? p.monthlyAmount : ''}"></label>
@@ -839,6 +958,14 @@ function openProvisionModal(id) {
     </form>
   `);
 
+  let selectedKind = kind;
+  const provToggle = document.getElementById('provTypeToggle');
+  provToggle.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    provToggle.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    selectedKind = b.dataset.value;
+  }));
+
   document.getElementById('modalCancel').addEventListener('click', closeModal);
   if (p) document.getElementById('provDelete').addEventListener('click', () => {
     if (confirm('Excluir este provisionamento?')) {
@@ -853,6 +980,7 @@ function openProvisionModal(id) {
     const totalRaw = fd.get('totalInstallments');
     const record = {
       id: p ? p.id : uid(),
+      kind: selectedKind,
       name: fd.get('name').trim(),
       area: (fd.get('area') || '').trim(),
       monthlyAmount: parseFloat(fd.get('monthlyAmount')) || 0,
@@ -872,6 +1000,46 @@ function openProvisionModal(id) {
   });
 }
 
+/* ---------- Extrato ---------- */
+
+function renderStatement() {
+  const yearSelect = document.getElementById('statementYear');
+  const years = availableYears();
+  if (!years.includes(statementYear)) statementYear = years[0];
+  yearSelect.innerHTML = years.map(y => `<option value="${y}" ${y === statementYear ? 'selected' : ''}>${y}</option>`).join('');
+
+  const byPerson = yearStatsByPerson(statementYear);
+  const peopleRows = [...state.people, { id: 'shared', name: 'Compartilhado' }]
+    .map(p => ({ name: p.name, s: byPerson[p.id] || { entradas: 0, despesas: 0, transferido: 0, rendimento: 0 } }))
+    .filter(r => r.s.entradas || r.s.despesas || r.s.transferido || r.s.rendimento);
+  document.querySelector('#statementByPersonTable tbody').innerHTML = peopleRows.map(r => {
+    const ganhoReal = r.s.entradas - r.s.despesas + r.s.rendimento;
+    return `<tr>
+      <td>${r.name}</td>
+      <td class="amount-in">${formatCurrency(r.s.entradas)}</td>
+      <td class="amount-out">${formatCurrency(r.s.despesas)}</td>
+      <td class="amount-transfer">${formatCurrency(r.s.transferido)}</td>
+      <td class="amount-in">${formatCurrency(r.s.rendimento)}</td>
+      <td class="${ganhoReal >= 0 ? 'amount-in' : 'amount-out'}">${formatCurrency(ganhoReal)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" class="muted-text">Sem lançamentos nesse ano.</td></tr>';
+
+  const byAccount = yearStatsByAccount(statementYear);
+  const accountRows = state.accounts
+    .map(a => ({ name: a.name, s: byAccount[a.id] || { entradas: 0, despesas: 0, transferido: 0 } }))
+    .filter(r => r.s.entradas || r.s.despesas || r.s.transferido);
+  document.querySelector('#statementByAccountTable tbody').innerHTML = accountRows.map(r => {
+    const saldo = r.s.entradas - r.s.despesas;
+    return `<tr>
+      <td>${r.name}</td>
+      <td class="amount-in">${formatCurrency(r.s.entradas)}</td>
+      <td class="amount-out">${formatCurrency(r.s.despesas)}</td>
+      <td class="amount-transfer">${formatCurrency(r.s.transferido)}</td>
+      <td class="${saldo >= 0 ? 'amount-in' : 'amount-out'}">${formatCurrency(saldo)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5" class="muted-text">Sem lançamentos nesse ano.</td></tr>';
+}
+
 /* ---------- Contas & Categorias ---------- */
 
 function renderAccountsView() {
@@ -879,10 +1047,16 @@ function renderAccountsView() {
   accList.innerHTML = '';
   state.accounts.forEach(a => {
     const li = document.createElement('li');
-    li.innerHTML = `<span><i class="swatch" style="background:${accountColor(a)}"></i>${a.name}</span>
-      <span class="row-actions"><button data-del="${a.id}" title="Excluir">🗑️</button></span>`;
+    const bal = accountBalanceThrough(a.id, todayLocal());
+    li.innerHTML = `<span><i class="swatch" style="background:${accountColor(a)}"></i>${a.name}
+        <span class="tag">saldo estimado: ${formatCurrency(bal)}</span></span>
+      <span class="row-actions">
+        <button data-edit="${a.id}" title="Editar">✏️</button>
+        <button data-del="${a.id}" title="Excluir">🗑️</button>
+      </span>`;
     accList.appendChild(li);
   });
+  accList.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => openAccountModal(b.dataset.edit)));
   accList.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
     const inUse = state.transactions.some(t => t.accountId === b.dataset.del) || state.investments.some(i => i.accountId === b.dataset.del);
     if (inUse && !confirm('Essa conta tem lançamentos vinculados. Excluir mesmo assim?')) return;
@@ -942,11 +1116,15 @@ function renderAccountsView() {
   });
 }
 
-function openAccountModal() {
+function openAccountModal(id) {
+  const a = id ? state.accounts.find(x => x.id === id) : null;
   showModal(`
-    <h3>Nova conta</h3>
+    <h3>${a ? 'Editar conta' : 'Nova conta'}</h3>
     <form class="modal-form" id="accForm">
-      <label>Nome <input type="text" name="name" required placeholder="Ex: Nubank, Carteira, Poupança"></label>
+      <label>Nome <input type="text" name="name" required placeholder="Ex: Nubank, Carteira, Poupança" value="${a ? a.name : ''}"></label>
+      <label>Saldo inicial (R$) <input type="number" step="0.01" name="openingBalance" value="${a ? a.openingBalance : 0}"></label>
+      <label>Data desse saldo <input type="date" name="openingBalanceDate" value="${a && a.openingBalanceDate ? a.openingBalanceDate : todayLocal()}"></label>
+      <p class="muted-text">O app soma entradas e subtrai despesas lançadas depois dessa data para estimar o saldo atual da conta.</p>
       <div class="modal-actions">
         <button type="button" class="btn" id="modalCancel">Cancelar</button>
         <button type="submit" class="btn primary">Salvar</button>
@@ -956,9 +1134,18 @@ function openAccountModal() {
   document.getElementById('modalCancel').addEventListener('click', closeModal);
   document.getElementById('accForm').addEventListener('submit', (e) => {
     e.preventDefault();
-    const name = new FormData(e.target).get('name').trim();
+    const fd = new FormData(e.target);
+    const name = fd.get('name').trim();
     if (!name) return;
-    state.accounts.push({ id: uid(), name, colorIndex: state.accounts.length });
+    const openingBalance = parseFloat(fd.get('openingBalance')) || 0;
+    const openingBalanceDate = fd.get('openingBalanceDate') || null;
+    if (a) {
+      a.name = name;
+      a.openingBalance = openingBalance;
+      a.openingBalanceDate = openingBalanceDate;
+    } else {
+      state.accounts.push({ id: uid(), name, colorIndex: state.accounts.length, openingBalance, openingBalanceDate });
+    }
     scheduleSync(); closeModal(); renderAll();
   });
 }
@@ -1079,6 +1266,11 @@ function startApp() {
   document.getElementById('monthPicker').addEventListener('change', (e) => {
     currentMonth = e.target.value || currentMonth;
     renderAll();
+  });
+
+  document.getElementById('statementYear').addEventListener('change', (e) => {
+    statementYear = e.target.value || statementYear;
+    renderStatement();
   });
 
   document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
