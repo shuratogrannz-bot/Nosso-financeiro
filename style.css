@@ -142,6 +142,8 @@ input[type="month"] {
 .kpi-value { font-size: 1.5rem; font-weight: 700; margin-top: 4px; }
 .kpi-value.good { color: var(--status-good); }
 .kpi-value.critical { color: var(--status-critical); }
+.kpi-suggestion-pct { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.78rem; color: var(--text-muted); }
+.kpi-suggestion-pct input { width: 52px; padding: 5px 6px; font-size: 0.82rem; }
 
 .card {
   background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius);

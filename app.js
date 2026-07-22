@@ -10,6 +10,17 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+function todayLocal() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function currentMonthLocal() {
+  return todayLocal().slice(0, 7);
+}
+
 function defaultState() {
   return {
     version: 1,
@@ -39,12 +50,14 @@ function defaultState() {
     transactions: [],
     investments: [],
     provisions: [],
+    investmentSuggestionPct: 20,
     updatedAt: new Date().toISOString()
   };
 }
 
 function ensureShape(s) {
   if (!s.provisions) s.provisions = [];
+  if (s.investmentSuggestionPct == null) s.investmentSuggestionPct = 20;
   return s;
 }
 
@@ -52,7 +65,7 @@ let state = ensureShape(loadLocal() || defaultState());
 let config = loadConfig();
 let currentView = 'dashboard';
 let personFilter = 'all';
-let currentMonth = new Date().toISOString().slice(0, 7);
+let currentMonth = currentMonthLocal();
 let charts = {};
 let editingId = null;
 
@@ -482,7 +495,7 @@ function openTransactionModal(id) {
         <button type="button" data-value="entrada" class="${kind === 'entrada' ? 'active' : ''}">Entrada</button>
         <button type="button" data-value="despesa" class="${kind === 'despesa' ? 'active' : ''}">Despesa</button>
       </div>
-      <label>Data <input type="date" name="date" required value="${t ? t.date : new Date().toISOString().slice(0,10)}"></label>
+      <label>Data <input type="date" name="date" required value="${t ? t.date : todayLocal()}"></label>
       <label>Valor (R$) <input type="number" step="0.01" min="0" name="amount" required value="${t ? t.amount : ''}"></label>
       <label>Categoria
         <select name="categoryId">${categoryOptions(kind, t?.categoryId)}</select>
@@ -562,12 +575,28 @@ function personOptions(selected) {
 
 function renderInvestments() {
   const bal = investmentBalance();
+  const monthEntradas = monthTotals(currentMonth).entradas;
+  const pct = state.investmentSuggestionPct;
+  const suggestion = monthEntradas * (pct / 100);
   document.getElementById('investKpiGrid').innerHTML = `
     <div class="kpi-card"><div class="kpi-label">Total aportado</div><div class="kpi-value">${formatCurrency(bal.aportes)}</div></div>
     <div class="kpi-card"><div class="kpi-label">Total retirado</div><div class="kpi-value">${formatCurrency(bal.retiradas)}</div></div>
     <div class="kpi-card"><div class="kpi-label">Rendimento acumulado</div><div class="kpi-value good">${formatCurrency(bal.rendimento)}</div></div>
     <div class="kpi-card"><div class="kpi-label">Patrimônio investido</div><div class="kpi-value good">${formatCurrency(bal.total)}</div></div>
+    <div class="kpi-card">
+      <div class="kpi-label">Sugestão de aporte do mês</div>
+      <div class="kpi-value good">${formatCurrency(suggestion)}</div>
+      <div class="kpi-suggestion-pct">
+        <input type="number" id="suggestionPctInput" min="0" max="100" step="1" value="${pct}"> % das entradas do mês
+      </div>
+    </div>
   `;
+  document.getElementById('suggestionPctInput').addEventListener('change', (e) => {
+    const v = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+    state.investmentSuggestionPct = v;
+    scheduleSync();
+    renderInvestments();
+  });
 
   const rows = state.investments
     .filter(i => matchesPerson(i.personId))
@@ -616,7 +645,7 @@ function openInvestmentModal(id) {
         <button type="button" data-value="retirada" class="${kind === 'retirada' ? 'active' : ''}">Retirada</button>
         <button type="button" data-value="rendimento" class="${kind === 'rendimento' ? 'active' : ''}">Rendimento</button>
       </div>
-      <label>Data <input type="date" name="date" required value="${inv ? inv.date : new Date().toISOString().slice(0,10)}"></label>
+      <label>Data <input type="date" name="date" required value="${inv ? inv.date : todayLocal()}"></label>
       <label>Valor (R$) <input type="number" step="0.01" min="0" name="amount" required value="${inv ? inv.amount : ''}"></label>
       <label>Conta / Corretora
         <select name="accountId">${accountOptions(inv?.accountId)}</select>
@@ -992,7 +1021,7 @@ function exportBackup() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `nosso-financeiro-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.download = `nosso-financeiro-backup-${todayLocal()}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
